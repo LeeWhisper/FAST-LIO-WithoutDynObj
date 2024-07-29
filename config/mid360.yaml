@@ -18,13 +18,14 @@ mapping:
     fov_degree:    360
     det_range:     100.0
     extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic
-    extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+    # extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+    extrinsic_T: [ -0.0367, 0.0, -0.1186]
     extrinsic_R: [ 1, 0, 0,
                    0, 1, 0,
                    0, 0, 1]
 
 publish:
-    path_en:  false
+    path_en:  true
     scan_publish_en:  true       # false: close all the point cloud output
     dense_publish_en: true       # false: low down the points number in a global-frame point clouds scan.
     scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame

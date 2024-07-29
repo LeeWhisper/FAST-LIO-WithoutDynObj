@@ -257,3 +257,7 @@ The main structure of this UAV is 3d printed (Aluminum or PLA), the .stl file wi
 ## 6.Acknowledgments
 
 Thanks for LOAM(J. Zhang and S. Singh. LOAM: Lidar Odometry and Mapping in Real-time), [Livox_Mapping](https://github.com/Livox-SDK/livox_mapping), [LINS](https://github.com/ChaoqinRobotics/LINS---LiDAR-inertial-SLAM) and [Loam_Livox](https://github.com/hku-mars/loam_livox).
+
+## 7.Dynamic object detection
+
+基于光路原理检测动态物体

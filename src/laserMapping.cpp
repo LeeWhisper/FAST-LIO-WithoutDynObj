@@ -961,6 +961,8 @@ int main(int argc, char **argv)
             markerArray = deletMovingObj(feats_undistort, state_point);
 #else
             *cloud_feature = deletMovingObj(feats_undistort, state_point, featsFromMap);
+            cloud_feature->height = 1;
+            cloud_feature->width = cloud_feature->points.size();
 #endif
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
@@ -1088,6 +1090,7 @@ int main(int argc, char **argv)
                 fout_out << setw(20) << Measures.lidar_beg_time - first_lidar_time << " " << euler_cur.transpose() << " " << state_point.pos.transpose() << " " << ext_euler.transpose() << " " << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose()
                          << " " << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav << " " << feats_undistort->points.size() << endl;
                 dump_lio_state_to_log(fp);
+                printf("[ mapping ]: time: %0.6f\n", t5 - t0);
             }
         }
 
