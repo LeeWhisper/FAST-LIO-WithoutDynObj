@@ -12,10 +12,14 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 
+bool first_delet = true;
+
 std::queue<pcl::PointCloud<pcl::PointXYZINormal>> cloud_queue;
 std::queue<MTK::vect<3, double>> pose_queue;
 std::queue<MTK::SubManifold<SO3, 3, 3>> rot_queue;
 std::vector<pcl::PointCloud<pcl::PointXYZINormal>> feature_vec;
+pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_feature_(new pcl::PointCloud<pcl::PointXYZINormal>);
+pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_delet(new pcl::PointCloud<pcl::PointXYZINormal>);
 
 bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::PointXYZINormal p_judge, MTK::vect<3, double> pose_judge)
 {
@@ -39,6 +43,7 @@ bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::Poin
 
 PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom state_point, PointCloudXYZI::Ptr featsFromMap)
 {
+    cloud_feature_->points.clear();
     clock_t start, end;
     start = clock();
 
@@ -233,6 +238,46 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
 
         cout << "time_4: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
 
+        pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
+        vector<int> pointIdxSearch;         // 保存下标
+        vector<float> pointSquaredDistance; // 保存距离
+
+        if (feature_vec.size() > 1)
+        {
+
+            for (int i = 1; i < feature_vec.size(); i++)
+            {
+                kdtree.setInputCloud(feature_vec[i - 1].makeShared());
+                for (int j = 0; j < feature_vec[i].size(); j++)
+                {
+                    kdtree.nearestKSearch(feature_vec[i][j], 1, pointIdxSearch, pointSquaredDistance);
+                    if (feature_vec[i][j].x - feature_vec[i - 1][pointIdxSearch[0]].x > 0)
+                    {
+                        cloud_feature_->points.push_back(feature_vec[i][j]);
+                    }
+                }
+            }
+            feature_vec.erase(feature_vec.begin());
+        }
+
+        if (first_delet)
+        {
+            cloud_delet = cloud_feature;
+            first_delet = false;
+        }
+
+        for (int i = 0; i < cloud_delet->points.size(); i++)
+        {
+            kdtree.setInputCloud(cloud_delet);
+            for (int j = 0; j < cloud_feature->points.size(); j++)
+            {
+                kdtree.nearestKSearch(cloud_feature->points[i], 1, pointIdxSearch, pointSquaredDistance);
+                if (cloud_delet->points[i].x - cloud_feature->points[j].x > 0 && pointSquaredDistance[0] > 0.1) {
+                    cloud_delet->points[i] = cloud_feature->points[j];
+                }
+            }
+        }
+
         std::vector<bool> ptr_idx(feats_undistort->size(), false);
         for (int i = 0; i < cloud_feature->points.size(); i++)
         {
@@ -279,30 +324,8 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
         rot_queue.pop();
     }
 
-    pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZINormal>);
-
-    if (feature_vec.size() > 1)
-    {
-        pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
-        vector<int> pointIdxSearch;         // 保存下标
-        vector<float> pointSquaredDistance; // 保存距离
-        for (int i = 1; i < feature_vec.size(); i++)
-        {
-            kdtree.setInputCloud(feature_vec[i - 1].makeShared());
-            for (int j = 0; j < feature_vec[i].size(); j++)
-            {
-                kdtree.nearestKSearch(feature_vec[i][j], 1, pointIdxSearch, pointSquaredDistance);
-                if (feature_vec[i][j].x - feature_vec[i - 1][pointIdxSearch[0]].x > 0)
-                {
-                    cloud->points.push_back(feature_vec[i][j]);
-                }
-            }
-        }
-        feature_vec.erase(feature_vec.begin());
-    }
-
     if (!cloud_withoutmoving->empty())
         *feats_undistort = *cloud_withoutmoving;
 
-    return *cloud;
+    return *cloud_feature_;
 }
