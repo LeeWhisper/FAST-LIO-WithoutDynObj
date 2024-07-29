@@ -32,6 +32,8 @@
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
+
+// #define using_v1
 #include <omp.h>
 #include <mutex>
 #include <math.h>
@@ -69,7 +71,12 @@
 #include <iostream>
 #include <time.h>
 #include <pcl/segmentation/region_growing.h>
+
+#ifdef using_v1
 #include "deletMovingObj.hpp"
+#else
+#include "deletMovingObj_v2.hpp"
+#endif
 
 #define INIT_TIME (0.1)
 #define LASER_POINT_COV (0.001)
@@ -126,6 +133,7 @@ PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr corr_normvect(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr _featsArray;
 PointCloudXYZI::Ptr pointcloud_ec_(new PointCloudXYZI());
+PointCloudXYZI::Ptr cloud_feature(new PointCloudXYZI());
 
 visualization_msgs::MarkerArray markerArray;
 
@@ -948,8 +956,12 @@ int main(int argc, char **argv)
                 ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
-            // TODO:动态点云滤除
+// TODO:动态点云滤除
+#ifdef using_v1
             markerArray = deletMovingObj(feats_undistort, state_point);
+#else
+            *cloud_feature = deletMovingObj(feats_undistort, state_point, featsFromMap);
+#endif
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
             /*** Segment the map in lidar FOV ***/
@@ -1042,6 +1054,12 @@ int main(int argc, char **argv)
             publish_map(pubLaserCloudMap);
 
             markerArrayPub.publish(markerArray);
+
+            sensor_msgs::PointCloud2 voxelMap;
+            pcl::toROSMsg(*cloud_feature, voxelMap);
+            voxelMap.header.stamp = ros::Time().fromSec(lidar_end_time);
+            voxelMap.header.frame_id = "camera_init";
+            pubVoxelMap.publish(voxelMap);
             /*** Debug variables ***/
             if (runtime_pos_log)
             {

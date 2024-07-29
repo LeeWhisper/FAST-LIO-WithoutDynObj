@@ -36,11 +36,10 @@ bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::Poin
     return false;
 }
 
-visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom state_point)
+PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom state_point, PointCloudXYZI::Ptr featsFromMap)
 {
     clock_t start, end;
     start = clock();
-    visualization_msgs::MarkerArray markerArray;
 
     PointCloudXYZI::Ptr current_pc(new PointCloudXYZI());
     PointCloudXYZI::Ptr current_pc_all(new PointCloudXYZI());
@@ -52,9 +51,6 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
     pcl::StatisticalOutlierRemoval<pcl::PointXYZINormal> sor;
     sor.setMeanK(25);
     sor.setStddevMulThresh(1);
-
-    // sor.setInputCloud(feats_undistort);
-    // sor.filter(*feats_undistort); // 去除噪点
 
     for (int i = 0; i < feats_undistort->size(); i++) // 转换点云至世界坐标系
     {
@@ -79,6 +75,7 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
             po.y = p_global(1);
             po.z = p_global(2);
             po.intensity = feats_undistort->points[i].intensity;
+
             current_pc->points.push_back(po);
             current_pc_all->points.push_back(po);
         }
@@ -96,7 +93,7 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
     pose_queue.push(state_point.pos);
     rot_queue.push(state_point.rot);
     pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZINormal>);
-    pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_featrue(new pcl::PointCloud<pcl::PointXYZINormal>);
+    pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_feature(new pcl::PointCloud<pcl::PointXYZINormal>);
 
     if (cloud_queue.size() >= 5)
     {
@@ -170,7 +167,7 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
                     if (in_range(it->second[i], pose_queue.front(), cloud_queue.back().points[j], pose_queue.back()))
                     {
                         double dis = abs(k * cloud_queue.back().points[j].x + b - cloud_queue.back().points[j].y) / sqrt(1 + pow(k, 2));
-                        if (dis < 0.5)
+                        if (dis < 0.1)
                         {
                             if (sqrt(pow(cloud_queue.back().points[j].x - it->second[i].x, 2) + pow(cloud_queue.back().points[j].y - it->second[i].y, 2)) < 0.1)
                             {
@@ -191,93 +188,42 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
         for (int i = 0; i < cloud_queue.back().points.size(); i++)
         {
             if (i != indices_tmp[index])
-                cloud_featrue->points.push_back(cloud_queue.back().points[i]);
+                cloud_feature->points.push_back(cloud_queue.back().points[i]);
             else
             {
                 index++;
                 // indices->push_back(i);
             }
         }
-        cout << cloud_queue.back().points.size() << " " << indices_tmp.size() << " " << cloud_featrue->points.size() << endl;
+        cout << cloud_queue.back().points.size() << " " << indices_tmp.size() << " " << cloud_feature->points.size() << endl;
 
         sor.setMeanK(15);
-        sor.setInputCloud(cloud_featrue);
-        sor.filter(*cloud_featrue);
+        sor.setInputCloud(cloud_feature);
+        sor.filter(*cloud_feature);
 
-        Voxelg.setInputCloud(cloud_featrue);
+        Voxelg.setInputCloud(cloud_feature);
         Voxelg.setLeafSize(1.0f, 1.0f, 10.0f);
-        Voxelg.filter(*cloud_featrue);
+        Voxelg.filter(*cloud_feature);
 
         pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
         vector<int> pointIdxSearch;         // 保存下标
         vector<float> pointSquaredDistance; // 保存距离
 
-        kdtree.setInputCloud(current_pc_all);
-        for (int i = 0; i < cloud_featrue->size(); i++)
-        {
-            kdtree.radiusSearch(cloud_featrue->points[i], 0.5, pointIdxSearch, pointSquaredDistance);
-            // 1. 计算点云的均值
-            Eigen::Vector3d mean = Eigen::Vector3d::Zero();
-            for (const auto &id : pointIdxSearch)
+        kdtree.setInputCloud(featsFromMap);
+        for (int i = 0; i < cloud_feature->points.size(); i++) {
+            if (kdtree.nearestKSearch(cloud_feature->points[i], 1, pointIdxSearch, pointSquaredDistance) > 0)
             {
-                mean += Eigen::Vector3d(current_pc_all->points[id].x, current_pc_all->points[id].y, current_pc_all->points[id].z);
+                if (sqrt(pointSquaredDistance[0]) < 0.1)
+                    cloud_feature->points.erase(cloud_feature->points.begin() + i);
             }
-            mean /= pointIdxSearch.size();
-
-            // 2. 去中心化数据
-            Eigen::MatrixXd centered(pointIdxSearch.size(), 3);
-            for (size_t j = 0; j < pointIdxSearch.size(); ++j)
-            {
-                centered.row(j) = Eigen::Vector3d(current_pc_all->points[j].x, current_pc_all->points[j].y, current_pc_all->points[j].z) - mean;
-            }
-
-            // 3. 计算协方差矩阵
-            Eigen::Matrix3d covariance = centered.transpose() * centered / double(pointIdxSearch.size());
-
-            // 4. 特征值分解
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigen_solver(covariance);
-            Eigen::Vector3d eigen_values = eigen_solver.eigenvalues();   // PCA特征值，顺序从小到大
-            Eigen::Matrix3d eigen_vectors = eigen_solver.eigenvectors(); // PCA特征向量，按特征值顺序排列
-
-            cout << eigen_values[1] / eigen_values[2] << ", ";
-
-            visualization_msgs::Marker marker;
-            marker.header.frame_id = "camera_init";
-            marker.header.stamp = ros::Time::now();
-            marker.ns = "basic_shapes";
-            marker.action = visualization_msgs::Marker::ADD;
-            marker.pose.orientation.w = 1.0;
-            marker.id = i;
-            marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-
-            marker.scale.z = 0.5;
-            marker.color.b = 0;
-            marker.color.g = 0;
-            marker.color.r = 255;
-            marker.color.a = 1;
-
-            geometry_msgs::Pose pose;
-            pose.position.x = cloud_featrue->points[i].x;
-            pose.position.y = cloud_featrue->points[i].y;
-            pose.position.z = cloud_featrue->points[i].z;
-
-            ostringstream str;
-            str << eigen_values[1] / eigen_values[2];
-            marker.text = str.str();
-            marker.pose = pose;
-
-            markerArray.markers.push_back(marker);
-
-            // if (eigen_values[1] / eigen_values[2] > 0.1)
-            //     cloud_featrue->erase(cloud_featrue->points.begin() + i);
         }
-        cout << endl;
+
         cout << "time_4: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
 
         std::vector<bool> ptr_idx(feats_undistort->size(), false);
-        for (int i = 0; i < cloud_featrue->points.size(); i++)
+        for (int i = 0; i < cloud_feature->points.size(); i++)
         {
-            V3D p_global(cloud_featrue->points[i].x, cloud_featrue->points[i].y, cloud_featrue->points[i].z);
+            V3D p_global(cloud_feature->points[i].x, cloud_feature->points[i].y, cloud_feature->points[i].z);
             V3D p_body(state_point.offset_R_L_I.inverse() * ((state_point.rot.inverse() * (p_global - state_point.pos)) - state_point.offset_T_L_I));
             pcl::PointXYZINormal po;
             po.x = p_body(0);
@@ -321,5 +267,5 @@ visualization_msgs::MarkerArray deletMovingObj(PointCloudXYZI::Ptr feats_undisto
     if (!cloud_withoutmoving->empty())
         *feats_undistort = *cloud_withoutmoving;
 
-    return markerArray;
+    return *cloud_feature;
 }
