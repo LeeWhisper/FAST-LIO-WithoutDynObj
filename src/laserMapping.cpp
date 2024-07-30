@@ -82,8 +82,7 @@
 #define LASER_POINT_COV (0.001)
 #define MAXN (720000)
 #define PUBFRAME_PERIOD (20)
-#define HASH_P 116101
-#define MAX_N 10000000000
+
 
 /*** Time Log Variables ***/
 double kdtree_incremental_time = 0.0, kdtree_search_time = 0.0, kdtree_delete_time = 0.0;
@@ -165,34 +164,6 @@ geometry_msgs::PoseStamped msg_body_pose;
 
 shared_ptr<Preprocess> p_pre(new Preprocess());
 shared_ptr<ImuProcess> p_imu(new ImuProcess());
-
-class VOXEL_LOC
-{
-public:
-    int64_t x, y, z;
-
-    VOXEL_LOC(int64_t vx = 0, int64_t vy = 0, int64_t vz = 0)
-        : x(vx), y(vy), z(vz) {}
-
-    bool operator==(const VOXEL_LOC &other) const
-    {
-        return (x == other.x && y == other.y && z == other.z);
-    }
-};
-
-namespace std
-{
-    template <>
-    struct hash<VOXEL_LOC>
-    {
-        int operator()(const VOXEL_LOC &s) const
-        {
-            using std::hash;
-            using std::size_t;
-            return ((((s.z) * HASH_P) % MAX_N + (s.y)) * HASH_P) % MAX_N + (s.x);
-        }
-    };
-}
 
 void SigHandle(int sig)
 {

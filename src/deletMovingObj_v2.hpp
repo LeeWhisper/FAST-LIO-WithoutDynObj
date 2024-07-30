@@ -12,6 +12,37 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 
+#define HASH_P 116101
+#define MAX_N 10000000000
+
+class VOXEL_LOC
+{
+public:
+    int64_t x, y, z;
+
+    VOXEL_LOC(int64_t vx = 0, int64_t vy = 0, int64_t vz = 0)
+        : x(vx), y(vy), z(vz) {}
+
+    bool operator==(const VOXEL_LOC &other) const
+    {
+        return (x == other.x && y == other.y && z == other.z);
+    }
+};
+
+namespace std
+{
+    template <>
+    struct hash<VOXEL_LOC>
+    {
+        int operator()(const VOXEL_LOC &s) const
+        {
+            using std::hash;
+            using std::size_t;
+            return ((((s.z) * HASH_P) % MAX_N + (s.y)) * HASH_P) % MAX_N + (s.x);
+        }
+    };
+}
+
 bool first_delet = true;
 
 std::queue<pcl::PointCloud<pcl::PointXYZINormal>> cloud_queue;
@@ -20,6 +51,9 @@ std::queue<MTK::SubManifold<SO3, 3, 3>> rot_queue;
 std::vector<pcl::PointCloud<pcl::PointXYZINormal>> feature_vec;
 pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_feature_(new pcl::PointCloud<pcl::PointXYZINormal>);
 pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_delet(new pcl::PointCloud<pcl::PointXYZINormal>);
+
+std::unordered_map<VOXEL_LOC, int> map_feature;
+float voxel_box_size = 0.2;
 
 bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::PointXYZINormal p_judge, MTK::vect<3, double> pose_judge)
 {
@@ -132,31 +166,8 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
                 p.y = max_dis * sin(angle) + pose_queue.front().y();
                 map[i].push_back(p);
             }
-            else
-            {
-                // double sum_x = 0, sum_y = 0;
-                // for (int j = 0; j < map[i].size(); j++)
-                // {
-                //     sum_x += map[i][j].x;
-                //     sum_y += map[i][j].y;
-                // }
-                // pcl::PointXYZINormal p;
-                // p.x = sum_x / map[i].size();
-                // p.y = sum_y / map[i].size();
-                // map[i].clear();
-                // map[i].push_back(p);
-            }
         }
         cout << "time_2: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
-
-        // for (std::map<int, std::vector<pcl::PointXYZINormal>>::iterator it = map.begin(); it != map.end(); it++)
-        // {
-        //     for (int i = 0; i < it->second.size(); i++)
-        //     {
-        // it->second[i].intensity = 100;
-        // current_1->points.push_back(it->second[i]); // 上一帧的点云以及构建的虚拟点
-        //     }
-        // }
 
         std::vector<bool> cloud_idx(cloud_queue.back().points.size(), false);
         for (std::map<int, std::vector<pcl::PointXYZINormal>>::iterator it = map.begin(); it != map.end(); it++)
@@ -210,60 +221,70 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
         Voxelg.setLeafSize(1.0f, 1.0f, 10.0f);
         Voxelg.filter(*cloud_feature);
 
-        // pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
-        // vector<int> pointIdxSearch;         // 保存下标
-        // vector<float> pointSquaredDistance; // 保存距离
-        // cout << "cloud_feature->points.size()" << cloud_feature->points.size() << endl;
-
-        // kdtree.setInputCloud(current_pc_all);
-        // for (int i = 0; i < cloud_feature->points.size(); i++)
-        // {
-        //     if (kdtree.nearestKSearch(cloud_feature->points[i], 20, pointIdxSearch, pointSquaredDistance) > 0)
-        //     {
-        //         double max_dis = -DBL_MAX, min_dis = DBL_MAX;
-        //         for (int i = 0; i < pointIdxSearch.size(); i++)
-        //         {
-        //             double d = sqrt(pow(current_pc_all->points[pointIdxSearch[i]].x - pose_queue.back().x(), 2) + pow(current_pc_all->points[pointIdxSearch[i]].y - pose_queue.back().y(), 2));
-        //             max_dis < d ? max_dis = d : 0;
-        //             min_dis > d ? min_dis = d : 0;
-        //         }
-
-        //         double dis = sqrt(pow(cloud_feature->points[i].x - pose_queue.back().x(), 2) + pow(cloud_feature->points[i].y - pose_queue.back().y(), 2));
-        //         cout << min_dis << " " << max_dis << " " << dis << endl;
-        //         if (min_dis < dis && dis < max_dis)
-        //             cloud_feature->points.erase(cloud_feature->points.begin() + i);
-        //     }
-        // }
-        // cout << "cloud_feature->points.size()" << cloud_feature->points.size() << endl;
-
         cout << "time_4: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
 
+        feature_vec.push_back(*cloud_feature);
         pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
         vector<int> pointIdxSearch;         // 保存下标
         vector<float> pointSquaredDistance; // 保存距离
 
-        if (feature_vec.size() > 1)
+        if (feature_vec.size() > 10)
         {
-
-            for (int i = 1; i < feature_vec.size(); i++)
+            std::vector<int> feature_idx(feature_vec[feature_vec.size() - 1].size(), 0);
+            for (int i = 0; i < feature_vec[feature_vec.size() - 1].size(); i++)
             {
-                kdtree.setInputCloud(feature_vec[i - 1].makeShared());
-                for (int j = 0; j < feature_vec[i].size(); j++)
+                for (int j = feature_vec.size() - 2; j >= 0; j--)
                 {
-                    kdtree.nearestKSearch(feature_vec[i][j], 1, pointIdxSearch, pointSquaredDistance);
-                    if (feature_vec[i][j].x - feature_vec[i - 1][pointIdxSearch[0]].x > 0)
+                    kdtree.setInputCloud(feature_vec[j].makeShared());
+                    kdtree.nearestKSearch(feature_vec[feature_vec.size() - 1][i], 1, pointIdxSearch, pointSquaredDistance);
+
+                    if (feature_vec[feature_vec.size() - 1][i].x - feature_vec[j][pointIdxSearch[0]].x > 0 && pointSquaredDistance[0] < 0.5)
                     {
-                        cloud_feature_->points.push_back(feature_vec[i][j]);
+                        feature_idx[i]++;
                     }
+                    if (feature_idx[i] > 6)
+                        cloud_feature_->points.push_back(feature_vec[feature_vec.size() - 1][i]);
                 }
             }
             feature_vec.erase(feature_vec.begin());
         }
 
-        if (first_delet)
+        if (!cloud_feature_->points.empty())
         {
-            cloud_delet = cloud_feature;
-            first_delet = false;
+            if (first_delet)
+            {
+                cloud_delet = cloud_feature_;
+                first_delet = false;
+            }
+
+            for (int i = 0; i < cloud_feature_->size(); i++)
+            {
+                auto &a_pt = cloud_feature_->points[i];
+                Eigen::Vector3f pt(a_pt.x, a_pt.y, a_pt.z);
+                float loc_xyz[3];
+                for (int j = 0; j < 3; j++)
+                {
+                    loc_xyz[j] = pt[j] / voxel_box_size;
+                    if (loc_xyz[j] < 0)
+                    {
+                        loc_xyz[j] -= 1.0; // 保证在float转int时，是向下取整的，如，int(-1.5) = -1，我们希望取整=-2，因此执行减1操作
+                    }
+                }
+                VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
+                auto iter = map_feature.find(position);
+                if (iter != map_feature.end())
+                {
+                    iter->second++;
+                }
+                else
+                {
+                    map_feature[position] = 10;
+                }
+            }
+            for (auto &a_map : map_feature)
+            {
+                a_map.second--;
+            }
         }
 
         for (int i = 0; i < cloud_delet->points.size(); i++)
@@ -272,7 +293,8 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             for (int j = 0; j < cloud_feature->points.size(); j++)
             {
                 kdtree.nearestKSearch(cloud_feature->points[i], 1, pointIdxSearch, pointSquaredDistance);
-                if (cloud_delet->points[i].x - cloud_feature->points[j].x > 0 && pointSquaredDistance[0] > 0.1) {
+                if (cloud_delet->points[i].x - cloud_feature->points[pointIdxSearch[0]].x > 0 && pointSquaredDistance[0] > 0.1)
+                {
                     cloud_delet->points[i] = cloud_feature->points[j];
                 }
             }
@@ -318,7 +340,6 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
         cloud_out->width = 1;
         cloud_out->height = cloud_out->points.size();
 
-        feature_vec.push_back(*cloud_feature);
         cloud_queue.pop();
         pose_queue.pop();
         rot_queue.pop();
