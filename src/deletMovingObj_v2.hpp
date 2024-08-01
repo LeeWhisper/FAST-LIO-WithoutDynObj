@@ -357,5 +357,5 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
     if (!cloud_withoutmoving->empty())
         *feats_undistort = *cloud_withoutmoving;
 
-    return *cloud_out /* + *cloud_feature_ */;
+    return *cloud_delet /* + *cloud_feature_ */;
 }
