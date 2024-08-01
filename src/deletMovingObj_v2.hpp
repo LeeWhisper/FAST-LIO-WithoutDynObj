@@ -11,6 +11,7 @@
 #include <pcl/segmentation/region_growing.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/extract_indices.h>
 
 #define HASH_P 116101
 #define MAX_N 10000000000
@@ -53,7 +54,7 @@ pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_feature_(new pcl::PointCloud<pc
 pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloud_delet(new pcl::PointCloud<pcl::PointXYZINormal>);
 
 std::unordered_map<VOXEL_LOC, int> map_feature;
-float voxel_box_size = 0.2;
+float voxel_box_size = 0.3;
 
 bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::PointXYZINormal p_judge, MTK::vect<3, double> pose_judge)
 {
@@ -78,6 +79,7 @@ bool in_range(pcl::PointXYZINormal p_in, MTK::vect<3, double> pose_in, pcl::Poin
 PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom state_point, PointCloudXYZI::Ptr featsFromMap)
 {
     cloud_feature_->points.clear();
+    // cloud_delet->points.clear();
     clock_t start, end;
     start = clock();
 
@@ -94,7 +96,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
 
     for (int i = 0; i < feats_undistort->size(); i++) // 转换点云至世界坐标系
     {
-        if (feats_undistort->points[i].x > 0 || /* abs(ptr->points[i].y) > 30 || */ feats_undistort->points[i].z > 0.5 || feats_undistort->points[i].z < 0)
+        if (feats_undistort->points[i].x > 0 || /* abs(ptr->points[i].y) > 30 || */ feats_undistort->points[i].z > 0.7 || feats_undistort->points[i].z < 0)
         {
             V3D p_body(feats_undistort->points[i].x, feats_undistort->points[i].y, feats_undistort->points[i].z);
             V3D p_global(state_point.rot * (state_point.offset_R_L_I * p_body + state_point.offset_T_L_I) + state_point.pos);
@@ -113,7 +115,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             pcl::PointXYZINormal po;
             po.x = p_global(0);
             po.y = p_global(1);
-            po.z = p_global(2);
+            po.z = /* p_global(2) */ state_point.pos.z();
             po.intensity = feats_undistort->points[i].intensity;
 
             current_pc->points.push_back(po);
@@ -212,6 +214,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             }
         }
         // cout << cloud_queue.back().points.size() << " " << indices_tmp.size() << " " << cloud_feature->points.size() << endl;
+        *cloud_out = *cloud_feature;
 
         sor.setMeanK(15);
         sor.setInputCloud(cloud_feature);
@@ -228,82 +231,85 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
         vector<int> pointIdxSearch;         // 保存下标
         vector<float> pointSquaredDistance; // 保存距离
 
-        if (feature_vec.size() > 10)
+        if (feature_vec.size() > 5)
         {
             std::vector<int> feature_idx(feature_vec[feature_vec.size() - 1].size(), 0);
             for (int i = 0; i < feature_vec[feature_vec.size() - 1].size(); i++)
             {
+                double last_dis = 0;
                 for (int j = feature_vec.size() - 2; j >= 0; j--)
                 {
                     kdtree.setInputCloud(feature_vec[j].makeShared());
                     kdtree.nearestKSearch(feature_vec[feature_vec.size() - 1][i], 1, pointIdxSearch, pointSquaredDistance);
 
-                    if (feature_vec[feature_vec.size() - 1][i].x - feature_vec[j][pointIdxSearch[0]].x > 0 && pointSquaredDistance[0] < 0.5)
+                    if (feature_vec[feature_vec.size() - 1][i].x - feature_vec[j][pointIdxSearch[0]].x > last_dis && pointSquaredDistance[0] < 0.4)
                     {
                         feature_idx[i]++;
+                        last_dis = feature_vec[feature_vec.size() - 1][i].x - feature_vec[j][pointIdxSearch[0]].x;
                     }
-                    if (feature_idx[i] > 6)
-                        cloud_feature_->points.push_back(feature_vec[feature_vec.size() - 1][i]);
+                    else if (feature_vec[feature_vec.size() - 1][i].x - feature_vec[j][pointIdxSearch[0]].x <= last_dis)
+                    {
+                        feature_idx[i]--;
+                    }
                 }
             }
+            for (int i = 0; i < feature_idx.size(); i++)
+                if (feature_idx[i] > 2)
+                {
+                    // feature_vec[feature_vec.size() - 1][i].intensity = 200;
+                    cloud_feature_->points.push_back(feature_vec[feature_vec.size() - 1][i]);
+                }
             feature_vec.erase(feature_vec.begin());
         }
 
-        if (!cloud_feature_->points.empty())
+        pcl::Indices indices_add, indices_eql;
+        pcl::PointIndices::Ptr indices_remove(new pcl::PointIndices);
+        if (!cloud_feature_->empty())
         {
             if (first_delet)
             {
-                cloud_delet = cloud_feature_;
+                *cloud_delet = *cloud_feature_;
                 first_delet = false;
             }
 
-            for (int i = 0; i < cloud_feature_->size(); i++)
+            kdtree.setInputCloud(cloud_feature_);
+            for (int j = 0; j < cloud_delet->points.size(); j++)
             {
-                auto &a_pt = cloud_feature_->points[i];
-                Eigen::Vector3f pt(a_pt.x, a_pt.y, a_pt.z);
-                float loc_xyz[3];
-                for (int j = 0; j < 3; j++)
+                kdtree.nearestKSearch(cloud_delet->points[j], 1, pointIdxSearch, pointSquaredDistance);
+                if (pointSquaredDistance[0] < 0.4)
                 {
-                    loc_xyz[j] = pt[j] / voxel_box_size;
-                    if (loc_xyz[j] < 0)
-                    {
-                        loc_xyz[j] -= 1.0; // 保证在float转int时，是向下取整的，如，int(-1.5) = -1，我们希望取整=-2，因此执行减1操作
-                    }
-                }
-                VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
-                auto iter = map_feature.find(position);
-                if (iter != map_feature.end())
-                {
-                    iter->second++;
+                    cloud_delet->points[j] = cloud_feature_->points[pointIdxSearch[0]];
+                    indices_eql.push_back(pointIdxSearch[0]);
+                    cloud_delet->points[j].intensity = 10;
                 }
                 else
                 {
-                    map_feature[position] = 10;
+                    if (std::find(indices_add.begin(), indices_add.end(), pointIdxSearch[0]) == indices_add.end() &&
+                        std::find(indices_eql.begin(), indices_eql.end(), pointIdxSearch[0]) == indices_eql.end())
+                        indices_add.push_back(pointIdxSearch[0]);
+                    cloud_delet->points[j].intensity--;
                 }
+                if (cloud_delet->points[j].intensity <= 0)
+                    indices_remove->indices.push_back(j);
             }
-            for (auto &a_map : map_feature)
-            {
-                a_map.second--;
-            }
-        }
 
-        for (int i = 0; i < cloud_delet->points.size(); i++)
-        {
-            kdtree.setInputCloud(cloud_delet);
-            for (int j = 0; j < cloud_feature->points.size(); j++)
+            pcl::ExtractIndices<pcl::PointXYZINormal> extract;
+            extract.setInputCloud(cloud_delet);
+            extract.setIndices(indices_remove);
+            extract.setNegative(true);
+            extract.filter(*cloud_delet);
+
+            for (auto id : indices_add)
             {
-                kdtree.nearestKSearch(cloud_feature->points[i], 1, pointIdxSearch, pointSquaredDistance);
-                if (cloud_delet->points[i].x - cloud_feature->points[pointIdxSearch[0]].x > 0 && pointSquaredDistance[0] > 0.1)
-                {
-                    cloud_delet->points[i] = cloud_feature->points[j];
-                }
+                cloud_feature_->points[id].intensity = 10;
+                cloud_delet->points.push_back(cloud_feature_->points[id]);
             }
         }
 
         std::vector<bool> ptr_idx(feats_undistort->size(), false);
-        for (int i = 0; i < cloud_feature->points.size(); i++)
+        for (int i = 0; i < cloud_delet->points.size(); i++)
         {
-            V3D p_global(cloud_feature->points[i].x, cloud_feature->points[i].y, cloud_feature->points[i].z);
+            V3D p_global(cloud_delet->points[i].x, cloud_delet->points[i].y, cloud_delet->points[i].z);
             V3D p_body(state_point.offset_R_L_I.inverse() * ((state_point.rot.inverse() * (p_global - state_point.pos)) - state_point.offset_T_L_I));
             pcl::PointXYZINormal po;
             po.x = p_body(0);
@@ -314,8 +320,11 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             {
                 if (ptr_idx[j])
                     continue;
-                if (sqrt(pow(po.x - feats_undistort->points[j].x, 2) +
-                         pow(po.y - feats_undistort->points[j].y, 2)) < 0.5)
+                // if (sqrt(pow(po.x - feats_undistort->points[j].x, 2) +
+                //          pow(po.y - feats_undistort->points[j].y, 2)) < 0.5)
+                if (abs(po.x - feats_undistort->points[j].x) < 1.5 &&
+                    abs(po.y - feats_undistort->points[j].y) < 1.3 &&
+                    (po.z - feats_undistort->points[j].z < 1 && feats_undistort->points[j].z - po.z < 1.2))
                 {
                     ptr_idx[j] = true;
                     indices_moving.push_back(j);
@@ -336,7 +345,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             }
         cout << "time_7: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
 
-        *cloud_out = *current_1 + *current_2;
+        // *cloud_out = *current_1 + *current_2;
         cloud_out->width = 1;
         cloud_out->height = cloud_out->points.size();
 
@@ -348,5 +357,5 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
     if (!cloud_withoutmoving->empty())
         *feats_undistort = *cloud_withoutmoving;
 
-    return *cloud_feature_;
+    return *cloud_out /* + *cloud_feature_ */;
 }
