@@ -10,7 +10,7 @@
 
 ## 效果展示
 
-本项目在长直隧道环境数据集下进行了测试，实验中隧道长度约150m，使用[绝影X30](https://www.deeprobotics.cn/robot/index/product3.html)作为设备平台，其上搭载[Livox Mid 360](https://www.livoxtech.com/cn/mid-360)，成功构建[隧道点云PCD](./PCD/scans_filtered.pcd)。
+本项目在长直隧道环境数据集下进行了测试，实验中隧道长度约150m，使用[绝影X30](https://www.deeprobotics.cn/robot/index/product3.html)作为设备平台，其上搭载[Livox Mid 360](https://www.livoxtech.com/cn/mid-360)，成功构建隧道点云[PCD](./PCD/scans_filtered.pcd)，其中红色点为动态物体点云特征点。
 
 <div align="center">
 <img src="./doc/out.gif" width=99% />
@@ -18,3 +18,8 @@
 
 ## 算法原理
 
+假设上一帧雷达点云为Frame_0，
+
+<div align="center">
+<img src="./doc/光路原理.png"/>
+</div>
