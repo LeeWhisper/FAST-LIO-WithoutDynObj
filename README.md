@@ -23,3 +23,35 @@
 <div align="center">
 <img src="./doc/光路原理.png"/>
 </div>
+
+
+## 使用
+
+### 配置环境
+
+Ubuntu 20.04 ( ROS noetic )
+
+
+### 运行
+```
+mkdir -p Fast_LIO_WithoutDynObj/src
+
+cd Fast_LIO_WithoutDynObj/src
+
+git clone git@github.com:LeeWhisper/FAST-LIO-WithoutDynObj.git
+
+catkin_make
+
+roslaunch fast_lio mapping_mid360.launch
+
+```
+
+### 注意事项
+
+修改配置参数：[mid360.yaml](./config/mid360.yaml)，特别是以下参数：
+
+``` yaml
+common:
+    lid_topic:  "/livox/lidar"
+    imu_topic:  "/imu/data"
+```
