@@ -16,6 +16,8 @@
 #define HASH_P 116101
 #define MAX_N 10000000000
 
+// #define log_enable
+
 class VOXEL_LOC
 {
 public:
@@ -82,6 +84,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
     // cloud_delet->points.clear();
     clock_t start, end;
     start = clock();
+    double time_1, time_2, time_3, time_4, time_5, time_6, time_7;
 
     PointCloudXYZI::Ptr current_pc(new PointCloudXYZI());
     PointCloudXYZI::Ptr current_pc_all(new PointCloudXYZI());
@@ -96,7 +99,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
 
     for (int i = 0; i < feats_undistort->size(); i++) // 转换点云至世界坐标系
     {
-        if (feats_undistort->points[i].x > 0 || /* abs(ptr->points[i].y) > 30 || */ feats_undistort->points[i].z > 0.7 || feats_undistort->points[i].z < 0)
+        if (/* feats_undistort->points[i].x > 0 || */ /* abs(ptr->points[i].y) > 30 || */ feats_undistort->points[i].z > 0.7 || feats_undistort->points[i].z < 0)
         {
             V3D p_body(feats_undistort->points[i].x, feats_undistort->points[i].y, feats_undistort->points[i].z);
             V3D p_global(state_point.rot * (state_point.offset_R_L_I * p_body + state_point.offset_T_L_I) + state_point.pos);
@@ -155,7 +158,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
             int k = angle / (M_PI / 180) / Resolution;
             map[k].push_back(cloud_queue.front().points[i]);
         }
-        cout << "time_1: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_1 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         for (int i = 0; i < int(360 / Resolution); i++)
         {
@@ -169,7 +172,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
                 map[i].push_back(p);
             }
         }
-        cout << "time_2: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_2 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         std::vector<bool> cloud_idx(cloud_queue.back().points.size(), false);
         for (std::map<int, std::vector<pcl::PointXYZINormal>>::iterator it = map.begin(); it != map.end(); it++)
@@ -198,7 +201,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
                 }
             }
         }
-        cout << "time_3: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_3 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         pcl::IndicesPtr indices(new std::vector<int>);
         sort(indices_tmp.begin(), indices_tmp.end());
@@ -224,7 +227,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
         Voxelg.setLeafSize(1.0f, 1.0f, 10.0f);
         Voxelg.filter(*cloud_feature);
 
-        cout << "time_4: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_4 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         feature_vec.push_back(*cloud_feature);
         pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
@@ -331,7 +334,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
                 }
             }
         }
-        cout << "time_6: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_5 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         sort(indices_moving.begin(), indices_moving.end());
         index = 0;
@@ -343,7 +346,7 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
                 else
                     index++;
             }
-        cout << "time_7: " << (double)(clock() - start) / CLOCKS_PER_SEC << endl;
+        time_6 = (double)(clock() - start) / CLOCKS_PER_SEC;
 
         // *cloud_out = *current_1 + *current_2;
         cloud_out->width = 1;
@@ -356,6 +359,11 @@ PointCloudXYZI deletMovingObj(PointCloudXYZI::Ptr feats_undistort, state_ikfom s
 
     if (!cloud_withoutmoving->empty())
         *feats_undistort = *cloud_withoutmoving;
+
+#ifdef log_enable
+    cout << "time_1: " << time_1 << " time_2: " << time_2 << " time_3: " << time_3 << " time_4: " << time_4 << " time_5: " << time_5 << " time_6: " << time_6 << endl;
+    // cout << cloud_queue.size() << " " << pose_queue.size() << " " << rot_queue.size() << endl;
+#endif
 
     return *cloud_delet /* + *cloud_feature_ */;
 }

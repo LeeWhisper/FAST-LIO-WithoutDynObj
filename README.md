@@ -40,6 +40,8 @@ cd Fast_LIO_WithoutDynObj/src
 
 git clone git@github.com:LeeWhisper/FAST-LIO-WithoutDynObj.git
 
+cd ..
+
 catkin_make
 
 roslaunch fast_lio mapping_mid360.launch
